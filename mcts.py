@@ -1,39 +1,49 @@
+import numpy as np
+from game import TicTacToe
 
 class Node:
-  def __init__(self):
-    self.prior = 0
+  def __init__(self, prior, state, player):
+    self.prior = prior
+    self.state = state
+    self.player = player
     self.value_sum = 0
     self.visits = 0
     self.children = {}
+  
+  def __repr__(self):
+    return f"{self.state}"
 
   def value(self) -> float:
     return self.value_sum / self.visits
   
+  def expand(self, game: TicTacToe, model):
+    action_board: np.ndarray = game.get_valid_moves(self.state)
+    priors, _ = model(self.state)
+    print("PRIOR PROB:", priors)
+    for iy, ix in np.ndindex(action_board.shape):
+      self.children[(iy, ix)] = Node(priors[iy * 3 + ix], 
+                                   game.get_next_state(self.state, (iy, ix), -self.player), -self.player)
+  
 
 
 class MCTS:
-  def __init__(self):
-    ...
+  def __init__(self, game, model):
+    self.game = game
+    self.model = model
 
-  def run_simulation(self, num_simulations: int, current_state: Node):
-    # Define Root
-    root = current_state
-    search_path = list()
-    # Expand Root
-    root.expand()
+  def run_simulation(self, num_simulations: int, current_state: np.ndarray):
+    root: Node = Node(0, current_state, -1) # put constructor params in
 
-    # Start simulation
-    for iter in range(num_simulations):
-      current_node = root
-      # Find first unexpanded child of the current node (root for i = 0)
-      while current_node.is_expanded():
-        # Use UCB to do so
-        search_path.append(current_node)
-        current_node = current_node.select_node()
+    root.expand(self.game, self.model)
 
-      # Expand this node using the priors from the policy network
-      priors, value = model(current_node.state)
-      current_node.create_children(priors)
+    print("STATE:", root.state, '\nNODE CHILDREN:', root.children)
+    
 
-      # Use the search path to adjust all affected nodes for simulation run 
-      self.backtrack(search_path)
+if __name__ == "__main__":
+  def FakeModel(board):
+    return np.array([1/9 for i in range(9)]), 1
+  
+  
+  mcts = MCTS(TicTacToe(), FakeModel)
+  
+  mcts.run_simulation(1, np.zeros((3, 3)))
