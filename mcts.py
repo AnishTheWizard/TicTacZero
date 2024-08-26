@@ -1,5 +1,17 @@
 import numpy as np
 from game import TicTacToe
+import math
+
+# understand this code further
+def ucb(parent, child):
+  prior_score = child.prior * np.sqrt(parent.visits) / (child.visits + 1)
+  
+  if child.visits > 0:
+    value_score = -child.value()
+  else:
+    value_score = 0
+  
+  return value_score + prior_score
 
 class Node:
   def __init__(self, prior, state, player):
@@ -11,10 +23,10 @@ class Node:
     self.children = {}
   
   def __repr__(self):
-    return f"\n{self.state}\n"
+    return f"\n{self.state}, {(self.value_sum, self.visits)}, {self.prior}\n"
 
   def value(self) -> float:
-    return self.value_sum / self.visits
+    return self.value_sum / self.visits if self.visits > 0 else 0
   
   def expand(self, game: TicTacToe, model):
     action_board: np.ndarray = game.get_valid_moves(self.state)
@@ -22,14 +34,25 @@ class Node:
     self.value_sum += value
     print("PRIOR PROB:", priors)
     for iy, ix in np.ndindex(action_board.shape):
-      self.children[(iy, ix)] = Node(priors[iy * 3 + ix], 
+      self.children[(iy, ix)] = Node(priors[iy * 3 + ix], #should multiply this by action board's value to make sure the prior isn't there for impossible moves
                                    game.get_next_state(self.state, (iy, ix), -self.player), -self.player)
+      
+    return value
   
   def expanded(self):
     return len(self.children) > 0
   
-  def select_next_state(self) :
-    return self.children[list(self.children.keys())[0]]
+  def select_next_state(self):
+    maxUCB = 0
+    maxNode = self.children[list(self.children.keys())[0]]
+    print(self.children)
+    for action, node in self.children.items():
+      print(node)
+      score = ucb(self, node)
+      if score > maxUCB:
+        maxUCB = score
+        maxNode = node
+    return maxNode
   
 
 
@@ -39,14 +62,15 @@ class MCTS:
     self.model = model
 
   def run_simulation(self, num_simulations: int, current_state: np.ndarray):
-    root: Node = Node(0, current_state, -1) # put constructor params in
+    root: Node = Node(0, current_state, -1)
 
     root.expand(self.game, self.model)
 
-    print("STATE:", root.state, '\nNODE CHILDREN:', root.children)
+    
     print("STARTING SIMULATION:")
     
     for simulation in range(num_simulations):
+      
       current_node = root
       search_path = [current_node]
       
@@ -54,15 +78,27 @@ class MCTS:
         current_node = current_node.select_next_state()
         search_path.append(current_node)
         
-      current_node.expand(self.game, self.model)
+      pred_value = current_node.expand(self.game, self.model)
       
-      self.backtrack(search_path, -1) # ??? what should the value be ???
+      self.backtrack(search_path, pred_value)
       
+    
+    bestNode = root
+    bestNodeValue = 0
+      
+    for action, node in root.children.items():
+      print(node)
+      if node.value() > bestNodeValue:
+        
+        bestNodeValue = node.value()
+        bestNode = node
+      
+    # print(bestNode)
   
   def backtrack(self, search_path: list[Node], value):
     for node in search_path:
       node.value_sum += value
-      node.visits += 1
+      node.visits = 1 + node.visits
     
 
 if __name__ == "__main__":
@@ -72,4 +108,4 @@ if __name__ == "__main__":
   
   mcts = MCTS(TicTacToe(), FakeModel)
   
-  mcts.run_simulation(1, np.zeros((3, 3)))
+  mcts.run_simulation(20, np.zeros((3, 3)))

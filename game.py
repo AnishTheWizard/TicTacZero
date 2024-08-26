@@ -20,7 +20,7 @@ class TicTacToe:
     return np.array([[board[i][j] == 0 for j in range(3)] for i in range(3)])
 
   def create_blank_board(self) -> np.ndarray:
-    ...
+    return np.zeros((3, 3))
 
   def get_next_state(self, board, action, player) -> np.ndarray:
     board = np.copy(board)
