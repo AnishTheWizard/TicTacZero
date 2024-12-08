@@ -1,6 +1,8 @@
 import numpy as np
 from game import TicTacToe
 import math
+import random
+from torch import FloatTensor
 
 # understand this code further
 def ucb(parent, child):
@@ -30,24 +32,20 @@ class Node:
   
   def expand(self, game: TicTacToe, model):
     action_board: np.ndarray = game.get_valid_moves(self.state)
-    priors, value = model(self.state)
+    priors, value = model(FloatTensor(self.state.astype(np.float64).ravel()))
     self.value_sum += value
-    print("PRIOR PROB:", priors)
     for iy, ix in np.ndindex(action_board.shape):
-      self.children[(iy, ix)] = Node(priors[iy * 3 + ix], #should multiply this by action board's value to make sure the prior isn't there for impossible moves
-                                   game.get_next_state(self.state, (iy, ix), -self.player), -self.player)
-      
+        self.children[(iy, ix)] = Node(priors[iy * 3 + ix], #should multiply this by action board's value to make sure the prior isn't there for impossible moves
+                                   game.get_next_state(self.state, (iy, ix)), -self.player)
     return value
   
   def expanded(self):
     return len(self.children) > 0
   
   def select_next_state(self):
-    maxUCB = 0
+    maxUCB = 0 # shouldn't we find the ucb of the maxNode?
     maxNode = self.children[list(self.children.keys())[0]]
-    print(self.children)
     for action, node in self.children.items():
-      print(node)
       score = ucb(self, node)
       if score > maxUCB:
         maxUCB = score
@@ -58,7 +56,7 @@ class Node:
 
 class MCTS:
   def __init__(self, game, model):
-    self.game = game
+    self.game: TicTacToe = game
     self.model = model
 
   def run_simulation(self, num_simulations: int, current_state: np.ndarray):
@@ -67,10 +65,9 @@ class MCTS:
     root.expand(self.game, self.model)
 
     
-    print("STARTING SIMULATION:")
+    # print("STARTING SIMULATION")
     
     for simulation in range(num_simulations):
-      
       current_node = root
       search_path = [current_node]
       
@@ -83,29 +80,36 @@ class MCTS:
       self.backtrack(search_path, pred_value)
       
     
-    bestNode = root
-    bestNodeValue = 0
+    bestAction, bestNodeValue = list(root.children.items())[0]
+    bestNodeValue = bestNodeValue.value()
+    truth_probabilities = self.game.create_blank_board()
+    
+    valid_actions = self.game.get_valid_moves(current_state)
+
+    vectorized_valid_actions = list()
       
     for action, node in root.children.items():
-      print(node)
-      if node.value() > bestNodeValue:
-        
-        bestNodeValue = node.value()
-        bestNode = node
+      if valid_actions[action]:
+        vectorized_valid_actions.append(action)
+        truth_probabilities[action] = (node.visits / root.visits) if node.visits > 0 and root.visits > 0 else 0
+      else:
+        truth_probabilities[action] = 0
       
-    # print(bestNode)
+    if sum := np.sum(truth_probabilities) > 0:
+      truth_probabilities = truth_probabilities / sum
+      
+    validated_truth = [float(truth_probabilities[i]) for i in vectorized_valid_actions]
+    # print(vectorized_valid_actions, validated_truth)
+    try:
+      bestAction = vectorized_valid_actions[np.random.choice(range(len(vectorized_valid_actions)), p=validated_truth)]
+    except:
+      flat_index = np.argmax(validated_truth)
+      bestAction = vectorized_valid_actions[flat_index]
   
+    return bestAction, truth_probabilities
+      
+        
   def backtrack(self, search_path: list[Node], value):
     for node in search_path:
       node.value_sum += value
       node.visits = 1 + node.visits
-    
-
-if __name__ == "__main__":
-  def FakeModel(board):
-    return np.array([1/9 for i in range(9)]), 1
-  
-  
-  mcts = MCTS(TicTacToe(), FakeModel)
-  
-  mcts.run_simulation(20, np.zeros((3, 3)))

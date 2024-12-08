@@ -18,4 +18,4 @@ class TicTacModel(nn.Module):
 
   def forward(self, x):
     x = self.layers(x)
-    return (nn.functional.relu(self.action_head(x)), nn.functional.relu(self.value_head(x)))
+    return nn.functional.relu(self.action_head(x)), nn.functional.sigmoid(self.value_head(x))
