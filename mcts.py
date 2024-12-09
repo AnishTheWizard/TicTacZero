@@ -4,6 +4,9 @@ import math
 import random
 from torch import FloatTensor
 
+from model import TicTacPolicyNetwork, TicTacValueNetwork
+
+
 # understand this code further
 def ucb(parent, child):
   prior_score = child.prior * np.sqrt(parent.visits) / (child.visits + 1)
@@ -30,13 +33,27 @@ class Node:
   def value(self) -> float:
     return self.value_sum / self.visits if self.visits > 0 else 0
   
-  def expand(self, game: TicTacToe, model):
+  def expand(self, game: TicTacToe, p_nn: TicTacPolicyNetwork, v_nn: TicTacValueNetwork):
     action_board: np.ndarray = game.get_valid_moves(self.state)
-    priors, value = model(FloatTensor(self.state.astype(np.float64).ravel()))
+    model_input = FloatTensor(self.state.astype(np.float64).ravel())
+    priors, value = p_nn(model_input), v_nn(model_input)
+    priors = priors.detach().numpy() * action_board.flatten()
+    sum = np.sum(priors)
+    if sum  == 0:
+      print("Priors add up to zero:")
+      print("Action Board: ", action_board)
+      print("Model Input: ", model_input)
+      print("Priors: ", priors)
+      print("Value: ", value)
+      quit()
+    priors /= np.sum(priors)
+
     self.value_sum += value
     for iy, ix in np.ndindex(action_board.shape):
-        self.children[(iy, ix)] = Node(priors[iy * 3 + ix], #should multiply this by action board's value to make sure the prior isn't there for impossible moves
+      if priors[iy * 3 + ix] != 0:
+        self.children[(iy, ix)] = Node(priors[iy * 3 + ix],
                                    game.get_next_state(self.state, (iy, ix)), -self.player)
+
     return value
   
   def expanded(self):
@@ -55,14 +72,15 @@ class Node:
 
 
 class MCTS:
-  def __init__(self, game, model):
+  def __init__(self, game, p_n: TicTacPolicyNetwork, v_n: TicTacValueNetwork):
     self.game: TicTacToe = game
-    self.model = model
+    self.p_n: TicTacPolicyNetwork = p_n
+    self.v_n: TicTacValueNetwork = v_n
 
   def run_simulation(self, num_simulations: int, current_state: np.ndarray):
-    root: Node = Node(0, current_state, -1)
+    root: Node = Node(0, current_state, 1)
 
-    root.expand(self.game, self.model)
+    root.expand(self.game, self.p_n, self.v_n)
 
     
     # print("STARTING SIMULATION")
@@ -70,46 +88,56 @@ class MCTS:
     for simulation in range(num_simulations):
       current_node = root
       search_path = [current_node]
-      
+
       while current_node.expanded():
         current_node = current_node.select_next_state()
         search_path.append(current_node)
-        
-      pred_value = current_node.expand(self.game, self.model)
-      
-      self.backtrack(search_path, pred_value)
-      
-    
-    bestAction, bestNodeValue = list(root.children.items())[0]
-    bestNodeValue = bestNodeValue.value()
-    truth_probabilities = self.game.create_blank_board()
-    
-    valid_actions = self.game.get_valid_moves(current_state)
 
-    vectorized_valid_actions = list()
-      
+      # First check if the game has ended in simulation
+      value = self.get_value_if_possible(current_node.state)
+
+      # if the game isn't over, take a guess
+      if value is None:
+        value = current_node.expand(self.game, self.p_n, self.v_n)
+
+      self.backtrack(search_path, value)
+
+    # Now find the best child of the root node
+
+    truth_probabilities = self.game.create_blank_board()
+
     for action, node in root.children.items():
-      if valid_actions[action]:
-        vectorized_valid_actions.append(action)
-        truth_probabilities[action] = (node.visits / root.visits) if node.visits > 0 and root.visits > 0 else 0
-      else:
-        truth_probabilities[action] = 0
-      
-    if sum := np.sum(truth_probabilities) > 0:
-      truth_probabilities = truth_probabilities / sum
-      
-    validated_truth = [float(truth_probabilities[i]) for i in vectorized_valid_actions]
-    # print(vectorized_valid_actions, validated_truth)
-    try:
-      bestAction = vectorized_valid_actions[np.random.choice(range(len(vectorized_valid_actions)), p=validated_truth)]
-    except:
-      flat_index = np.argmax(validated_truth)
-      bestAction = vectorized_valid_actions[flat_index]
+      truth_probabilities[action] = node.visits
+
+    truth_probabilities = truth_probabilities / np.sum(truth_probabilities)
+    
+    visit_counts = np.array([child.visits for child in root.children.values()])
+    actions = np.array([action for action in root.children.keys()])
+
+    best_action = actions[np.argmax(visit_counts)]
   
-    return bestAction, truth_probabilities
-      
+    return best_action, truth_probabilities
         
   def backtrack(self, search_path: list[Node], value):
     for node in search_path:
       node.value_sum += value
       node.visits = 1 + node.visits
+
+
+  def get_value_if_possible(self, state):
+    if self.game.is_win(state):
+      return 1
+    elif self.game.is_win(-state):
+      return -1
+    else:
+      return None
+
+
+
+if __name__ == '__main__':
+  game = TicTacToe()
+  mcts = MCTS(game, TicTacPolicyNetwork(), TicTacValueNetwork())
+  board = game.create_blank_board()
+  board[0,0] = 1
+  action, truth = mcts.run_simulation(1, board)
+  print(action)
