@@ -2,7 +2,7 @@ from torch import Tensor
 from torch.utils.data import TensorDataset, DataLoader
 
 from mcts import MCTS
-from model import TicTacValueNetwork, TicTacPolicyNetwork
+from model import TicTacModel
 from game import TicTacToe
 import numpy as np
 import random
@@ -22,20 +22,22 @@ class Trainer:
       # print('-------------------------------')
       # print(examples[i])
     return examples
+
+  def find_loss_pi(self, outputs, targets):
+    loss = -(targets * torch.log(outputs)).sum(dim=1)
+    return loss.mean()
   
-  def execute_episode(self, game: TicTacToe, p_n: TicTacPolicyNetwork, v_n: TicTacValueNetwork):
+  def execute_episode(self, game: TicTacToe, model: TicTacModel):
     # execute a game using the MCTS (let the model predict on its own)
     board = game.create_blank_board()
     examples = list()
-    mcts = MCTS(game, p_n, v_n)
+    mcts = MCTS(game, model)
     iteration = 0
     while True:
       
       iteration += 1
       
       action, truth = mcts.run_simulation(20, board)
-      # print(f"ITER: {iteration}\n", board, '\n', game.get_valid_moves(board), '\n')
-      # print(action, '\n', truth, '\n----------------------\n')
       examples.append([board, truth, None]) # The third entry is for the value state
       board = game.get_next_state(board, action)
       if game.is_win(board):
@@ -48,10 +50,10 @@ class Trainer:
   def pit(self, old_model, new_model):
     return 1
     
-  def train_model(self, examples, p_n: TicTacPolicyNetwork, v_n: TicTacValueNetwork):
-    policy_optimizer = torch.optim.Adam(p_n.parameters(), lr=0.01)
-    value_optimizer = torch.optim.Adam(v_n.parameters(), lr=0.001)
-    criterion_policy = torch.nn.NLLLoss()
+  def train_model(self, examples, model: TicTacModel):
+    optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
+    # value_optimizer = torch.optim.Adam(v_n.parameters(), lr=0.001)
+    criterion_policy = torch.nn.MSELoss()
     criterion_value = torch.nn.MSELoss()
 
     boards, y = Tensor([e[0].ravel() for e in examples]), Tensor(list(range(len(examples))))
@@ -63,8 +65,7 @@ class Trainer:
     epochs = 50
 
     for i in range(1, epochs + 1):
-      p_n.train()
-      v_n.train()
+      model.train()
       for batch_x, batch_y in dataloader:
 
         boards = batch_x
@@ -77,21 +78,20 @@ class Trainer:
         target_pis = target_pis.contiguous()
         target_vs = target_vs.contiguous()
 
-        output_pi, output_v = p_n(boards), v_n(boards)
-        print(output_pi.shape)
+        output_pi, output_v = model(boards)
 
-        loss_pi = criterion_policy(output_pi, target_pis)
+        output_pi = F.softmax(output_pi, dim=1)
+
+        loss_pi = self.find_loss_pi(output_pi, target_pis)
         loss_v = criterion_value(output_v.view(-1), target_vs)
         total_loss = loss_pi + loss_v
 
         pi_losses.append(float(loss_pi))
         v_losses.append(float(loss_v))
 
-        value_optimizer.zero_grad()
+        optimizer.zero_grad()
         total_loss.backward()
-        policy_optimizer.step()
-        value_optimizer.step()
-
+        optimizer.step()
 
       if i % 25 == 0:
         torch.set_printoptions(precision=4, sci_mode=False)
@@ -103,25 +103,24 @@ class Trainer:
         print(output_pi[0].detach())
         print(target_pis[0])
 
-    p_n.eval()
-    v_n.eval()
-    return p_n, v_n
+    return model
     
   def learn(self):
-    p_n, v_n = TicTacPolicyNetwork(), TicTacValueNetwork()
+    model = TicTacModel()
     game = TicTacToe()
     
     num_eps = 50 #50
-    num_training_sets = 100 #100
+    num_training_sets = 30 #100
 
 
     for i in range(num_training_sets):
       examples = list()
       for e in range(num_eps):
-        examples.extend(self.execute_episode(game, p_n, v_n))
-      print(f"Training with {len(examples)} examples")
-      p_n, v_n = self.train_model(examples, p_n, v_n)
-    return p_n, v_n
+        examples.extend(self.execute_episode(game, model))
+      print(f"Training with {len(examples)} examples: model_{i}")
+      model = self.train_model(examples, model)
+      torch.save(model.state_dict(), f"models/model_{i}.pth")
+    return model
     
   
   

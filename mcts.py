@@ -1,10 +1,14 @@
 import numpy as np
+import torch
+
 from game import TicTacToe
 import math
 import random
 from torch import FloatTensor
 
-from model import TicTacPolicyNetwork, TicTacValueNetwork
+from model import TicTacModel
+
+from torch.functional import F
 
 
 # understand this code further
@@ -33,10 +37,13 @@ class Node:
   def value(self) -> float:
     return self.value_sum / self.visits if self.visits > 0 else 0
   
-  def expand(self, game: TicTacToe, p_nn: TicTacPolicyNetwork, v_nn: TicTacValueNetwork):
+  def expand(self, game: TicTacToe, model: TicTacModel):
     action_board: np.ndarray = game.get_valid_moves(self.state)
     model_input = FloatTensor(self.state.astype(np.float64).ravel())
-    priors, value = p_nn(model_input), v_nn(model_input)
+    priors, value = model(model_input)
+
+    priors = F.log_softmax(priors, dim=-1)
+
     priors = priors.detach().numpy() * action_board.flatten()
     sum = np.sum(priors)
     if sum  == 0:
@@ -45,8 +52,9 @@ class Node:
       print("Model Input: ", model_input)
       print("Priors: ", priors)
       print("Value: ", value)
-      quit()
-    priors /= np.sum(priors)
+
+    else:
+      priors /= np.sum(priors)
 
     self.value_sum += value
     for iy, ix in np.ndindex(action_board.shape):
@@ -72,15 +80,14 @@ class Node:
 
 
 class MCTS:
-  def __init__(self, game, p_n: TicTacPolicyNetwork, v_n: TicTacValueNetwork):
+  def __init__(self, game, model: TicTacModel):
     self.game: TicTacToe = game
-    self.p_n: TicTacPolicyNetwork = p_n
-    self.v_n: TicTacValueNetwork = v_n
+    self.model = model
 
   def run_simulation(self, num_simulations: int, current_state: np.ndarray):
     root: Node = Node(0, current_state, 1)
 
-    root.expand(self.game, self.p_n, self.v_n)
+    root.expand(self.game, self.model)
 
     
     # print("STARTING SIMULATION")
@@ -98,12 +105,11 @@ class MCTS:
 
       # if the game isn't over, take a guess
       if value is None:
-        value = current_node.expand(self.game, self.p_n, self.v_n)
+        value = current_node.expand(self.game, self.model)
 
       self.backtrack(search_path, value)
 
     # Now find the best child of the root node
-
     truth_probabilities = self.game.create_blank_board()
 
     for action, node in root.children.items():
@@ -136,8 +142,18 @@ class MCTS:
 
 if __name__ == '__main__':
   game = TicTacToe()
-  mcts = MCTS(game, TicTacPolicyNetwork(), TicTacValueNetwork())
+  model = TicTacModel()
+  mcts = MCTS(game, model)
+  torch.manual_seed(420)
+  np.random.seed(420)
+
   board = game.create_blank_board()
   board[0,0] = 1
-  action, truth = mcts.run_simulation(1, board)
-  print(action)
+  board[0,1] = -1
+  board[1,1] = 1
+  board[1,2] = -1
+  # action, truth = mcts.run_simulation(10, board)
+  policy, value = model(FloatTensor(board).flatten())
+  print(board)
+  print(policy.reshape((3,3)).detach().numpy() * game.get_valid_moves(board))
+  print(value)
