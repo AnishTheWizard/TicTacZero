@@ -1,0 +1,18 @@
+\section{Experiment}
+This section describes the more specific implementation process that this engine required. This process is divided into two sections: hyperparameter tuning and the performance of the model against the brute force approach, minimax.
+
+% \subsection{Model Development}
+% AlphaGo originally used independent CNNs as the policy and value networks, and initially, this paper did as well. However, there are two primary issues that must be considered for this paper. The first is that both policy and value networks are dealing with the same information, and only differentiated in its output. Hence, the combination of the networks would (and did) perform significantly better than split apart as it becomes effectively the same as transfer learning with replacement of the last layer. The second issue is that TicTacToe is not necessarily a big board game, the $3\times 3$ board doesn't require a lot of spatial comprehension, and thus, the faster and equally proficient FNN is more reasonable.
+
+\subsection{Hyperparameter Tuning}
+The hyperparameters for the overall engine was developed to balance the training duration and exploration. In other words, training shouldn't take hours, however, the engine should be given the chance to see varying boards. To do so, the training process involves 30 sets, each consisting of 100 episodes (games), where the model is trained for 50 epochs per set. This sets training time to $\sim$10 minutes, while exposing to up to $\sim$22500 boards (not unique).
+
+The policy and value networks are trained using the Adam optimizer, set with a learning rate of $5\cdot 10^{-4}$ to allow a slow and smooth convergence. Finally, the MCTS exploration factor was set to 4, encouraging a more diverse set of training examples. The effects of these choices can be viewed in the loss plot, in \cref{sec:loss_plot}. 
+% Notably, the model from training set 3, which exhibited the least overfitting, was selected for training.
+
+% The main hyperparameters are dealing with training duration. This algorithm needs to promote a lot of game state training examples, it needs to be able to properly investigate future moves, as well as repeat the training process in a reasonable amount of time. With these requirements, this paper found that the optimal durations are: 30 training sets, each running 100 episodes (games), and training the model over these episodes over 50 epochs. Finally, the policy and value FNN model uses the Adam optimizer with learning rate of $5\cdot 10^{-4}$, and run the MCTS algorithm with a exploration factor of 4. With this tuning, the loss graph in \cref{sec:loss_plot} was achieved. From the graph, the model developed from training set 3 was used for testing, as it faced the least over-fitting.
+
+\subsection{Competing with Minimax}
+TicTacToe was primarily chosen due to its nature to be easily solved with a brute force algorithm, minimax. While out of scope, minimax is an algorithm that tries to maximize the reward on its own turn, while minimizing the reward on opponent's turns. Since there are only $3^9 = 19683$ boards (even less due to terminal states), it is reasonable to run this brute force approach. For more details on how the algorithm functions, reference the pseudo code in \cref{sec:minimax_code}, however, for this paper, assume it as the \emph{perfect} algorithm to benchmark TicTacZero.
+
+When pitted against TicTacZero, the minimax algorithm could only surely win $30\%$ of the time, giving TicTacZero a $70\%$ win-tie rate over 100 games.

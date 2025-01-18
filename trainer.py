@@ -10,6 +10,7 @@ import random
 import torch
 from torch.functional import F
 
+import matplotlib.pyplot as plt
 
 class Trainer:
   def __init__(self):
@@ -24,7 +25,7 @@ class Trainer:
     return examples
 
   def find_loss_pi(self, outputs, targets):
-    loss = -(targets * torch.log(outputs)).sum(dim=1)
+    loss = -(targets * outputs).sum(dim=1)
     return loss.mean()
   
   def execute_episode(self, game: TicTacToe, model: TicTacModel):
@@ -37,7 +38,7 @@ class Trainer:
       
       iteration += 1
       
-      action, truth = mcts.run_simulation(20, board)
+      action, truth = mcts.run_simulation(100, board, 2)
       examples.append([board, truth, None]) # The third entry is for the value state
       board = game.get_next_state(board, action)
       if game.is_win(board):
@@ -53,7 +54,6 @@ class Trainer:
   def train_model(self, examples, model: TicTacModel):
     optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
     # value_optimizer = torch.optim.Adam(v_n.parameters(), lr=0.001)
-    criterion_policy = torch.nn.MSELoss()
     criterion_value = torch.nn.MSELoss()
 
     boards, y = Tensor([e[0].ravel() for e in examples]), Tensor(list(range(len(examples))))
@@ -80,11 +80,11 @@ class Trainer:
 
         output_pi, output_v = model(boards)
 
-        output_pi = F.softmax(output_pi, dim=1)
+        # output_pi = F.softmax(output_pi, dim=1)
 
         loss_pi = self.find_loss_pi(output_pi, target_pis)
         loss_v = criterion_value(output_v.view(-1), target_vs)
-        total_loss = loss_pi + loss_v
+        total_loss = 1.5 * loss_pi + loss_v
 
         pi_losses.append(float(loss_pi))
         v_losses.append(float(loss_v))
@@ -98,28 +98,47 @@ class Trainer:
         print(f"-------------------Epoch {i}-------------------")
         print("Policy Loss", np.mean(pi_losses))
         print("Value Loss", np.mean(v_losses))
-        print("Examples:")
+        print("Policy Examples:")
         print(boards[0])
         print(output_pi[0].detach())
         print(target_pis[0])
+        print("Value Examples:")
+        print(output_v[0].detach())
+        print(target_vs[0])
 
-    return model
+    return model, np.mean(pi_losses), np.mean(v_losses)
     
   def learn(self):
     model = TicTacModel()
     game = TicTacToe()
     
-    num_eps = 50 #50
-    num_training_sets = 30 #100
+    num_eps = 100 #50
+    num_training_sets = 15 #100
 
+    pi_losses = list()
+    v_losses = list()
 
     for i in range(num_training_sets):
       examples = list()
       for e in range(num_eps):
         examples.extend(self.execute_episode(game, model))
       print(f"Training with {len(examples)} examples: model_{i}")
-      model = self.train_model(examples, model)
-      torch.save(model.state_dict(), f"models/model_{i}.pth")
+      model, mean_pi_loss, mean_v_loss = self.train_model(examples, model)
+      pi_losses.append(mean_pi_loss)
+      v_losses.append(mean_v_loss)
+      torch.save(model.state_dict(), f"simulated_annealing/model_{i}.pth")
+
+    plt.plot(range(1, num_training_sets+1), pi_losses, label='Policy Loss')
+    plt.plot(range(1, num_training_sets+1), v_losses, label='Value Loss')
+
+    # Adding labels and title
+    plt.xlabel('Training Set Index')
+    plt.ylabel('Loss Value')
+    plt.title('Losses Over Training Sets')
+    plt.legend()
+    # Show the plot
+    plt.show()
+
     return model
     
   

@@ -1,0 +1,50 @@
+\section{Method}
+
+This section consists of all the design decisions for this engine. This engine implements many of the same as the AlphaGo Zero model, however, due to the different nature of TicTacToe, there are some important alterations to the overall paradigm to be discussed. More specifically, there are three main sections: Monte Carlo Tree Search, the Policy and Value Networks, and finally, self-play training.
+%--------------------------------------------------------------------------------------------
+\subsection{Monte Carlo Tree Search}
+Intuitively, most board games can be devolved down to a simple tree, where the edges are actions and the vertices are the resulting board states. A brute force solution to an engine for these board games is to search for all winning states any arbitrary move can lead to, and pick the move that maximizes the total number of winning states. However, this search operation poorly scales with any increase in action possibilities. Hence when playing complicated games, some optimization is necessary. 
+
+The primary optimization that MCTS makes is done by introducing a heuristic. More specifically, it performs a search by running simulations of games by selecting moves using the metric known as the Upper Confidence Bound or the $UCB$ score, formulated in \cref{sec:ucb_score}.
+
+A simulation consists of moves starting from the current state and proceeding by greedily selecting moves using the score until it reaches an undiscovered state of the game. Once it reaches this undiscovered state, it will expand the node (by connecting all possible moves as children), and determine the value of the node. This value is finally then backpropagated through the search path by offsetting each of the nodes' current value by this new value. Note that this is a very rough description of the algorithm, the more formalized pseudocode can be referenced in \cref{sec:mcts_code}.
+
+
+% Store the equation in the appendix.
+% \begin{equation}
+%   UCB_1(v_{parent}, v_{child}) = \begin{cases}
+%     p_{child}(\frac{\sqrt{n_{parent}}}{n_{child} + 1}) -  \quad &\text{if} \, n_{child} > 0 \\
+%     -x \quad &\text{if} \, n_{child} \leq 0 \\
+%   \end{cases}
+% \end{equation}
+
+%--------------------------------------------------------------------------------------------
+
+\subsection{Policy and Value}
+Recall that the $UCB$ score depends on some prior probabilities and values. When a state is undetermined (i.e. neither player has won), its value and priors are determined by 2 neural networks: the Policy and Value. Although these terms are prominently used in RL, in this situation, it can be simplified to be the answers of two questions. The policy network answers how likely each action is to lead to a winning state, and the value network answers how \textit{winnable} a state of the game is. This information is then fed into MCTS in the form of the $UCB$ score to determine how \emph{helpful} a move may be to investigate.
+
+Since TicTacToe is a simple game, the model reflects the same. The model is a standard Feedforward Neural Network with 2 hidden layers, each with 16 neurons and ReLU applied. Finally, there are two output heads: a policy head (9 neurons) and a value head (1 neuron), of which, have applied log-softmax and the sigmoid activation functions (augmented to go from $-1\to1$), respectively.
+
+To determine the loss it can be observed that the policy is effectively a vector of classification probabilities. As such this paper uses a variant of Categorical Cross Entropy loss, defined as the following equation:
+\begin{equation}
+  L_{cross-entropy} = -\sum_{i}y_i\log(\hat y_i)
+\end{equation}
+Likewise, the loss for the value function is the Mean Squared Error (MSE) loss, as it's effectively comparing two scalars.
+
+\subsection{Self-Play Training}
+One of the key features of this engine, is that it requires no human generated examples and only relies on playing itself, thereby allowing it to develop its own novel strategies. The algorithm works by repeatedly performing the following:
+\begin{enumerate}
+  \item Let the model play itself in \emph{episodes}
+  \item Store 3-entry tuples with the state of the game, true action probability output by MCTS, and  value of who won
+  \item Train the model on the examples
+\end{enumerate}
+Note that the MCTS determines the true action probabilities by the number of visits for each child node divided by the number of visits of its parent.
+
+However, there is a case for human generated data as it creates a diversity in the training set of game states. Without this, as soon as the model is shown a game state that it hasn't seen, it will start to make poorly judged moves. In order to suggest the model to diversify its strategies, and potentially lose more often during training, this paper introduces the exploration factor. This factor is used to convert the number of visits a node has, into a more uniform probability distribution, $P$. More mathematically:
+\begin{align}
+  P(i) &= \frac{x_i^{1/T}}{\sum_{j}x_j^{1/T}} \quad \text{where,}\\
+  T &= \text{ exploration factor} \\
+  x_i &= i^{th}\text{ action's visit count}
+\end{align}
+
+Then the model samples from this distribution to output its \emph{likely best} move. Thus, the model is forced to see more diverse boards and learn newer strategies.

@@ -8,14 +8,18 @@ class TicTacModel(nn.Module):
     super().__init__(*args, **kwargs)
 
     self.layers = nn.Sequential(
-      nn.Linear(3 * 3, 64, True),
+      nn.Linear(3 * 3, 16, True),
       nn.ReLU(False),
-      nn.Linear(64, 32, True),
+      nn.Linear(16, 16, True),
       nn.ReLU(False)
     )
 
-    self.policy_head = nn.Linear(32, 9, True)
-    self.value_head = nn.Linear(32, 1, True)
+    self.softmax = nn.LogSoftmax(dim=-1)
+
+    self.policy_head = nn.Linear(16, 9, True)
+    self.value_head = nn.Linear(16, 1, True)
+
+    self.init_weights()
 
   def init_weights(self):
     for layer in self.layers:
@@ -34,10 +38,10 @@ class TicTacModel(nn.Module):
 
   def forward(self, x):
     x = self.layers(x)
-    return self.policy_head(x), nn.functional.sigmoid(self.value_head(x))
+    return self.softmax(self.policy_head(x)), self._sigmoid(self.value_head(x))
 
-
-
+  def _sigmoid(self, x):
+    return nn.functional.sigmoid(x) * 2 - 1
 # class TicTacPolicyNetwork(nn.Module):
 #   def __init__(self, *args, **kwargs):
 #     super().__init__(*args, **kwargs)

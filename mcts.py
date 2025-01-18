@@ -42,7 +42,7 @@ class Node:
     model_input = FloatTensor(self.state.astype(np.float64).ravel())
     priors, value = model(model_input)
 
-    priors = F.log_softmax(priors, dim=-1)
+    # priors = F.log_softmax(priors, dim=-1)
 
     priors = priors.detach().numpy() * action_board.flatten()
     sum = np.sum(priors)
@@ -68,8 +68,8 @@ class Node:
     return len(self.children) > 0
   
   def select_next_state(self):
-    maxUCB = 0 # shouldn't we find the ucb of the maxNode?
     maxNode = self.children[list(self.children.keys())[0]]
+    maxUCB = ucb(self, maxNode)
     for action, node in self.children.items():
       score = ucb(self, node)
       if score > maxUCB:
@@ -84,17 +84,19 @@ class MCTS:
     self.game: TicTacToe = game
     self.model = model
 
-  def run_simulation(self, num_simulations: int, current_state: np.ndarray):
+  def run_simulation(self, num_simulations: int, current_state: np.ndarray, exploration_scale: int = 0):
     root: Node = Node(0, current_state, 1)
 
     root.expand(self.game, self.model)
 
-    
-    # print("STARTING SIMULATION")
+    T0 = exploration_scale
+    tau = 50
     
     for simulation in range(num_simulations):
       current_node = root
       search_path = [current_node]
+
+      exploration_scale = T0 * np.exp(-simulation / tau)
 
       while current_node.expanded():
         current_node = current_node.select_next_state()
@@ -109,19 +111,29 @@ class MCTS:
 
       self.backtrack(search_path, value)
 
+      print("exploration", exploration_scale)
+
     # Now find the best child of the root node
     truth_probabilities = self.game.create_blank_board()
 
     for action, node in root.children.items():
-      truth_probabilities[action] = node.visits
+      truth_probabilities[action[0]][action[1]] = node.visits
 
     truth_probabilities = truth_probabilities / np.sum(truth_probabilities)
     
     visit_counts = np.array([child.visits for child in root.children.values()])
     actions = np.array([action for action in root.children.keys()])
 
-    best_action = actions[np.argmax(visit_counts)]
-  
+    if np.random.rand() < exploration_scale:
+      distribution = visit_counts ** (1 / exploration_scale)
+      distribution = distribution / distribution.sum()
+      actions_idx = range(len(actions))
+      best_action = actions[np.random.choice(actions_idx, p=distribution)]
+    else:
+      best_action = actions[np.argmax(visit_counts)]
+
+
+
     return best_action, truth_probabilities
         
   def backtrack(self, search_path: list[Node], value):
